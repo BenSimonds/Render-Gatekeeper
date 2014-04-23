@@ -249,7 +249,7 @@ class GatekeeperPanel(bpy.types.Panel):
             row = box.row()
             row.operator('scene.gatekeeper_extra_checks', text = "Run Extra Checks", icon = 'VIEWZOOM')
             row = box.row()
-            row.label(text = "Other Issues:", icon = 'ERROR')
+            row.label(text = "Potential Issues:", icon = 'ERROR')
 
             try:
                 fails = json.loads(bpy.context.scene.gatekeeper.extra_fails)

@@ -568,7 +568,10 @@ class CheckExtras (bpy.types.Operator):
         if border:
             a = scene.render.border_min_x  == 0.0 and scene.render.border_min_y == 0.0
             b = scene.render.border_max_x == 1.0 and scene.render.border_max_y == 1.0
-            return not a and b
+            if not a or not b:
+                return True
+            else:
+                return False
         else:
             return False
 
@@ -614,7 +617,7 @@ class CheckExtras (bpy.types.Operator):
 
 class ExportSettings(bpy.types.Operator):
     bl_idname = 'scene.gatekeeper_export'
-    bl_label = "Export Scene's Render Settings"
+    bl_label = "Export Scene Render Settings"
     bl_info = 'Exports a list of render settings to a file.'
     filepath = bpy.props.StringProperty(name = "filepath", subtype = 'FILE_PATH')
 

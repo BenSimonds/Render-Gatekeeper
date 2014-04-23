@@ -21,24 +21,7 @@ Core functionality:
     Extras:
         Quick switch for preview render settings.
     
-                
-
 """
-
-
-bl_info = {
-    "name": "Render Gatekeeper",
-    "author": "Ben Simonds",
-    "version": (0, 1),
-    "blender": (2, 69, 0),
-    "location": "Properties > Render > Gatekeeper",
-    "description": "Allows you to save your scenes final render settings and check/restore them for doing final renders. Also does some other error checks.",
-    #"warning": "Requires qt_tools and ffmpeg",
-    "wiki_url": "",
-    "tracker_url": "",
-    "category": "Render",
-    }
-
 
 ###
 
@@ -49,19 +32,32 @@ import json
 
 class GatekeeperLayerProps(bpy.types.PropertyGroup):
     name = bpy.props.StringProperty (name = "Layer Name", default = "")
-    gk_store = bpy.props.StringProperty(name = "Gatekeeper Renderlayer Store", default = "")
-    gk_settings_fails = bpy.props.StringProperty(name = "Render Layer Settings Fails", default = "")
+    store = bpy.props.StringProperty(name = "Gatekeeper Renderlayer Store", default = "")
+    settings_fails = bpy.props.StringProperty(name = "Render Layer Settings Fails", default = "")
     
 
 class GatekeeperProps (bpy.types.PropertyGroup):
-    gk_template_global = {
+    template_global = {
         #Dimensions:
         "X Resolution" : "render.resolution_x",
         "Y Resolution" : "render.resolution_y",
         "Render Size %" : "render.resolution_percentage",
         "Start Frame" : "frame_start",
         "End Frame" : "frame_end",
+        "Frame Step" : "frame_step",
         "Frame Rate" : "render.fps",
+        "Frame Map Old" : "render.frame_map_old",
+        "Frame Map New" : "render.frame_map_new",
+        "Aspect Ratio X" : "render.pixel_aspect_x",
+        "Aspect Ratio Y" : "render.pixel_aspect_y",
+        "Border" : "render.use_border",
+        "Crop" : "render.use_crop_to_border",
+
+        #Border Dimensions:
+        "Border X Min" : "render.border_min_x",
+        "Border Y Min" : "render.border_min_y",
+        "Border X Max" : "render.border_max_x",
+        "border Y Max" : "render.border_max_y",
         
         #Stamp:
         "Stamp" : "render.use_stamp",
@@ -86,13 +82,14 @@ class GatekeeperProps (bpy.types.PropertyGroup):
         
         }
         
-    gk_template_cycles = {
+    template_cycles = {
         # Sampling:
         "Integrator" : "cycles.progressive",
         # No check for seed. Might do check for animation later.
         "Square Samples" : "cycles.use_square_samples",
         "Render Samples" : "cycles.samples",
-        "Clamp" : "cycles.sample_clamp",
+        "Clamp Direct" : "cycles.sample_clamp_direct",
+        "Clamp Indirect" : "cycles.sample_clamp_indirect",
         "AA Samples" : "cycles.aa_samples",
         "Diffuse Samples" : "cycles.diffuse_samples",
         "Glossy Samples" : "cycles.glossy_samples",
@@ -122,7 +119,7 @@ class GatekeeperProps (bpy.types.PropertyGroup):
          # I will add more to this soon. Should be enough to check for now.
          }
 
-    gk_template_blenderinternal = {
+    template_bi = {
         #Shading:
         "Use Textures":"render.use_textures",
         "Use Shadows":"render.use_shadows",
@@ -144,7 +141,7 @@ class GatekeeperProps (bpy.types.PropertyGroup):
 
         }
 
-    gk_template_renderlayers = {
+    template_renderlayers = {
         #This template goes from scene.render.layers instead of from scene
         "Samples":"samples",
         #"Material Override":"material_override",
@@ -155,32 +152,38 @@ class GatekeeperProps (bpy.types.PropertyGroup):
         #I could go into what passes are included here as well...
         }
 
-    gk_store = bpy.props.StringProperty(name = "Gatekeeper Store", default = "")
-    gk_settings_fails = bpy.props.StringProperty(name = "Render Settings Fails", default = "")
-    gk_renderlayer_ignoredisabled = bpy.props.BoolProperty(name = "Ignore Disabled Render Layers", default = False)
-    gk_renderlayer_ignoreinclusive = bpy.props.BoolProperty(name = "Ignore Render Layers that use EVERY scene layer.", default = False)
-    gk_fileoutput_fails = bpy.props.StringProperty(name = "File Output Fails", default = "")
-    gk_required_render_layers = bpy.props.BoolVectorProperty(name = "Required Render Layers", default = (False,False,False,False,False,False,False,False,False,False,False,False,False,False,False,False,False,False,False,False), size = 20)
-    gk_renderlayer_fails = bpy.props.StringProperty(name = "Render Layer Fails", default = "")
-    gk_renderlayerstores = bpy.props.CollectionProperty(type = GatekeeperLayerProps)
-    gk_extra_fails = bpy.props.StringProperty(name = "Other Potential Errors", default = "")
+    store = bpy.props.StringProperty(name = "Gatekeeper Store", default = "")
+    settings_fails = bpy.props.StringProperty(name = "Render Settings Fails", default = "")
+    renderlayer_ignoredisabled = bpy.props.BoolProperty(name = "Ignore Disabled Render Layers", default = False)
+    renderlayer_ignoreinclusive = bpy.props.BoolProperty(name = "Ignore Render Layers that use EVERY scene layer.", default = False)
+    fileoutput_fails = bpy.props.StringProperty(name = "File Output Fails", default = "")
+    required_render_layers = bpy.props.BoolVectorProperty(name = "Required Render Layers", default = (False,False,False,False,False,False,False,False,False,False,False,False,False,False,False,False,False,False,False,False), size = 20)
+    renderlayer_fails = bpy.props.StringProperty(name = "Render Layer Fails", default = "")
+    renderlayerstores = bpy.props.CollectionProperty(type = GatekeeperLayerProps)
+    extra_fails = bpy.props.StringProperty(name = "Other Potential Errors", default = "")
+
+    ui_settings = bpy.props.BoolProperty(name = "Render Settings", default = False)
+    ui_layers = bpy.props.BoolProperty(name = "Render Layers", default = False)
+    ui_outputnodes = bpy.props.BoolProperty(name = "File Output Nodes", default = False)
+    ui_extrachecks = bpy.props.BoolProperty(name = "Extras", default = False)
+    ui_io = bpy.props.BoolProperty(name = "Import/Export", default = False)
 
 
 ### Function Definitions ###
 
 def dict_from_templates(scene):
     #print("Generating template dict for scene: " + scene.name)
-    a = scene.gatekeeper.gk_template_global
+    a = scene.gatekeeper.template_global
     if scene.render.engine == 'CYCLES':
-        b = scene.gatekeeper.gk_template_cycles
+        b = scene.gatekeeper.template_cycles
     else:
-        b = scene.gatekeeper.gk_template_blenderinternal   
+        b = scene.gatekeeper.template_bi   
     merged = a.copy()
     merged.update(b)
     return merged #This can be fixed to include some BI settings later.
 
 def dict_from_templates_layers(scene):
-    template = scene.gatekeeper.gk_template_renderlayers
+    template = scene.gatekeeper.template_renderlayers
     return template
     
 def name_to_prop(data, key):
@@ -206,13 +209,13 @@ def name_to_prop(data, key):
 
 
 def current_from_key(data, key):
-    # Returns the current value of a property given a key in gk_template.
+    # Returns the current value of a property given a key in template.
     prop = name_to_prop(data, key)
     current = getattr(prop[0], prop[1])
     return current
 
 def dump_store(data):
-    # Returns the json dump of all the properties for the given scene or render layer, to be stored in gk_store or checked against it.
+    # Returns the json dump of all the properties for the given scene or render layer, to be stored in store or checked against it.
     if data.rna_type.name == 'Scene':
         template = dict_from_templates(data)
     elif data.rna_type.name == 'Scene Render Layer':
@@ -220,17 +223,20 @@ def dump_store(data):
         template = dict_from_templates_layers(scene)
     dict = {}
     for key in template.keys():
-        dict[key] = current_from_key(data, key)
+        try:
+            dict[key] = current_from_key(data, key)
+        except AttributeError:
+            print("No such attribute: " + key)
     dump = json.dumps(dict)
     return dump
 
 def stored_from_key(data, key):
-    #Returns the value of a key in gk_store
+    #Returns the value of a key in store
     if data.rna_type.name == 'Scene':
-        dict = json.loads(data.gatekeeper.gk_store)
+        dict = json.loads(data.gatekeeper.store)
     elif data.rna_type.name == 'Scene Render Layer':
         scene = data.id_data
-        dict = json.loads(scene.gatekeeper.gk_renderlayerstores[data.name].gk_store)
+        dict = json.loads(scene.gatekeeper.renderlayerstores[data.name].store)
     value = dict[key]
     return value
 
@@ -241,7 +247,7 @@ class SaveGatekeeperStore(bpy.types.Operator):
     bl_label = "Update the stored settings for render gatekeeper"
     to_save = bpy.props.StringProperty(name = "to_save", default = "")
     all_scenes = bpy.props.BoolProperty(name = "All Scenes", default = False)
-    #Saves the json dump to gk_store
+    #Saves the json dump to store
     
     def execute(self, context):
         if self.all_scenes:
@@ -252,18 +258,19 @@ class SaveGatekeeperStore(bpy.types.Operator):
             print("Saving Gatekeeper Store...")
             for scene in scenes:
                 #print(dump_store(scene))
-                scene.gatekeeper.gk_store = dump_store(scene)
+                scene.gatekeeper.store = dump_store(scene)
                 print("Now doing stores for render layers")
                 for layer in scene.render.layers:
                     #Update layer store or create new if missing.
-                    stores  = scene.gatekeeper.gk_renderlayerstores
+                    stores  = scene.gatekeeper.renderlayerstores
                     if layer.name in stores.keys():
                         layer_store = stores[layer.name]
-                        layer_store.gk_store = dump_store(layer)
+                        layer_store.store = dump_store(layer)
                     else:
                         layer_store = stores.add()
                         layer_store.name = layer.name
-                        layer_store.gk_store = dump_store(layer)
+                        layer_store.store = dump_store(layer)
+            bpy.ops.scene.check_gatekeeper_store()
             return {'FINISHED'} 
         else:
             try:
@@ -271,19 +278,19 @@ class SaveGatekeeperStore(bpy.types.Operator):
                 data_type = split[0]
                 if data_type == 'Scene':
                     data = bpy.data.scenes[split[1]]
-                    store = json.loads(data.gatekeeper.gk_store)
+                    store = json.loads(data.gatekeeper.store)
                 elif data_type == 'Scene Render Layer':
                     scene = bpy.data.scenes[split[1]]
                     data = scene.render.layers[split[2]]
-                    store = json.loads(scene.gatekeeper.gk_renderlayerstores[data.name].gk_store)
+                    store = json.loads(scene.gatekeeper.renderlayerstores[data.name].store)
                 key = split[3]
                 current = current_from_key(data, key)                
                 store[key] = current
                 if data_type == 'Scene':
-                    data.gatekeeper.gk_store = json.dumps(store)
+                    data.gatekeeper.store = json.dumps(store)
                 elif data_type == 'Scene Render Layer':
                     scene = data.id_data
-                    scene.gatekeeper.gk_renderlayerstores[data.name].gk_store = json.dumps(store)    
+                    scene.gatekeeper.renderlayerstores[data.name].store = json.dumps(store)    
             except (TypeError, KeyError):
                 print("to_save was incorrectly formatted, should be in the form 'type, scene.name, scene/layer.name, key' ")
                 print("to_save :" + self.to_save)
@@ -305,7 +312,7 @@ class SaveGatekeeperStore(bpy.types.Operator):
 class CheckGatekeeperStore(bpy.types.Operator):
     bl_idname = 'scene.check_gatekeeper_store'
     bl_label = "Check the current render settings vs the gatekeeper store."
-    #Checks the render settings and returns a list of failures to scene.gatekeeper.gk_fails
+    #Checks the render settings and returns a list of failures to scene.gatekeeper.fails
     
     def execute(self, context):
         for scene in bpy.data.scenes:
@@ -313,9 +320,9 @@ class CheckGatekeeperStore(bpy.types.Operator):
             fails = {} 
             template = dict_from_templates(scene)
             try:
-                stored_dict = json.loads(scene.gatekeeper.gk_store)
+                stored_dict = json.loads(scene.gatekeeper.store)
             except ValueError:
-                print("No stored data detected for gk_store.")
+                print("No stored data detected for store.")
                 return{'FINISHED'}
             for key in template.keys():
                 current = current_from_key(scene, key)
@@ -327,14 +334,14 @@ class CheckGatekeeperStore(bpy.types.Operator):
                 if stored != None:
                     if stored != current:
                         fails[key] = (current, stored)
-                scene.gatekeeper.gk_settings_fails = json.dumps(fails)
+                scene.gatekeeper.settings_fails = json.dumps(fails)
             # Layer Settings Fails
             for layer in scene.render.layers:
                 fails_layer = {}
                 template = dict_from_templates_layers(scene)
-                stores = scene.gatekeeper.gk_renderlayerstores
+                stores = scene.gatekeeper.renderlayerstores
                 try:
-                    layer_store = json.loads(stores[layer.name].gk_store)
+                    layer_store = json.loads(stores[layer.name].store)
                 except (KeyError, ValueError):
                     print("No stored data for the renderlayer: " + layer.name)
                     return {'FINISHED'}
@@ -348,7 +355,7 @@ class CheckGatekeeperStore(bpy.types.Operator):
                     if stored is not None:
                         if stored != current:
                             fails_layer[key] = (current, stored)
-                    stores[layer.name].gk_settings_fails = json.dumps(fails_layer)
+                    stores[layer.name].settings_fails = json.dumps(fails_layer)
 
         return {'FINISHED'}
 
@@ -367,12 +374,15 @@ class RestoreGatekeeperStore (bpy.types.Operator):
                     prop = name_to_prop(scene, key)
                     stored = stored_from_key(scene, key)
                     setattr(prop[0], prop[1], stored)
-                # Do render layer settings:
+                #Try to Do render layer settings (if saved):
                 for layer in scene.render.layers:
-                    template = dict_from_templates_layers(scene)
-                    for key in template.keys():
-                        prop = name_to_prop(layer, key)
-                        stored = stored_from_key(layer, key)
+                    try:
+                        template = dict_from_templates_layers(scene)
+                        for key in template.keys():
+                            prop = name_to_prop(layer, key)
+                            stored = stored_from_key(layer, key)
+                    except KeyError:
+                        print("No saved settings for render layer:" + layer.name)
             bpy.ops.scene.check_gatekeeper_store()
             return {'FINISHED'}
         else:
@@ -400,7 +410,7 @@ class MarkRenderLayers (bpy.types.Operator):
     bl_label = 'Marks current render layers as required for final render.'
 
     def execute(self, context):
-        bpy.context.scene.gatekeeper.gk_required_render_layers = bpy.context.scene.layers
+        bpy.context.scene.gatekeeper.required_render_layers = bpy.context.scene.layers
         return {'FINISHED'}
 
         
@@ -414,7 +424,7 @@ class CheckRenderLayers(bpy.types.Operator):
             fails = {}
             renderlayers = scene.render.layers
             for render_layer in renderlayers:
-                ignoredisabled = bpy.context.scene.gatekeeper.gk_renderlayer_ignoredisabled
+                ignoredisabled = bpy.context.scene.gatekeeper.renderlayer_ignoredisabled
                 skip = False
                 if ignoredisabled and not render_layer.use:
                     skip = True
@@ -425,18 +435,18 @@ class CheckRenderLayers(bpy.types.Operator):
                     #Check required against actual enabled layers:
                     actual = [i for i in range(20) if scene.layers[i]]
                     missing = [i for name, i in required if i not in actual]
-                    ignore_inclusive = bpy.context.scene.gatekeeper.gk_renderlayer_ignoreinclusive
+                    ignore_inclusive = bpy.context.scene.gatekeeper.renderlayer_ignoreinclusive
                     if len(missing) > 0:
                         if len(required) < 19 or not ignore_inclusive:
                             fails[render_layer.name] = sorted(missing)
             #Also Check Required Render Layers for scene:
-            required = [i for i in range(20) if scene.gatekeeper.gk_required_render_layers[i]]
+            required = [i for i in range(20) if scene.gatekeeper.required_render_layers[i]]
             missing = [i for i in required if not scene.layers[i]]
             if len(missing) > 0:
-                fails["[All Render Layers]"] = sorted(missing)
+                fails["Saved Required Layers"] = sorted(missing)
             print(fails)
 
-            scene.gatekeeper.gk_renderlayer_fails = json.dumps(fails)
+            scene.gatekeeper.renderlayer_fails = json.dumps(fails)
         return {'FINISHED'}
 
 class RectifyRenderLayers(bpy.types.Operator):
@@ -448,7 +458,7 @@ class RectifyRenderLayers(bpy.types.Operator):
         if self.to_fix == "":
             #Re-enable all required.
             for scene in bpy.data.scenes:
-                fails =  json.loads(scene.gatekeeper.gk_renderlayer_fails)
+                fails =  json.loads(scene.gatekeeper.renderlayer_fails)
                 missing = []
                 for fail in fails.keys():
                     missing = missing + fails[fail]
@@ -496,7 +506,7 @@ class CheckFileOutputs(bpy.types.Operator):
                     unconnected.append(layers[i].name)
             if unconnected != []:
                 fails[node.name] = str(unconnected).strip("[]")
-        bpy.context.scene.gatekeeper.gk_fileoutput_fails = json.dumps(fails)
+        bpy.context.scene.gatekeeper.fileoutput_fails = json.dumps(fails)
         return {'FINISHED'}
                     
 
@@ -553,6 +563,15 @@ class CheckExtras (bpy.types.Operator):
         else:
             return False
 
+    def check_border(self,scene):
+        border = scene.render.use_border
+        if border:
+            a = scene.render.border_min_x  == 0.0 and scene.render.border_min_y == 0.0
+            b = scene.render.border_max_x == 1.0 and scene.render.border_max_y == 1.0
+            return not a and b
+        else:
+            return False
+
     def check_layer_samples (self, scene):
         #Only run if cycles:
         if scene.render.engine == 'CYCLES':
@@ -579,7 +598,9 @@ class CheckExtras (bpy.types.Operator):
         if self.check_alpha_3(scene):
             extra_fails["Alpha 3 Fail"] = "Saving alpha channel for render, but not rendering bg with alpha."
         if self.check_no_stamp(scene):
-            extra_fails["Stamp Fail"] = "Render has stamp enabled."   
+            extra_fails["Stamp Fail"] = "Render has stamp enabled."
+        if self.check_border(scene):
+            extra_fails["Border Fail"] = "Border is on and the whole frame is not being rendered."  
         # All scenes checks:
         for scene in bpy.data.scenes:
             if self.check_layer_samples(scene) != []:
@@ -587,249 +608,46 @@ class CheckExtras (bpy.types.Operator):
                 extra_fails["Samples Fail, " + scene.name] = "Scene samples < Layer Samlples for Scene: " + scene.name + ", Layers: " + str(layers).strip("[]")
 
         #Write:
-        bpy.context.scene.gatekeeper.gk_extra_fails = json.dumps(extra_fails)
+        bpy.context.scene.gatekeeper.extra_fails = json.dumps(extra_fails)
         return {'FINISHED'}
 
 
+class ExportSettings(bpy.types.Operator):
+    bl_idname = 'scene.gatekeeper_export'
+    bl_label = "Export Scene's Render Settings"
+    bl_info = 'Exports a list of render settings to a file.'
+    filepath = bpy.props.StringProperty(name = "filepath", subtype = 'FILE_PATH')
 
-# Basic UI:
+    def execute(self, context):
+        #Get settings:
+        scene = bpy.context.scene
+        settings = json.loads(dump_store(scene))
+        with open(self.filepath, "w") as f:
+            json.dump(settings, f)
+        print("Exported render settings as: " + self.filepath)
+        return {'FINISHED'}
 
-class GatekeeperPanel(bpy.types.Panel):
-    """Test UI Panel for Gatekeeper"""
-    bl_label = "Gatekeeper"
-    bl_idname = "OBJECT_PT__Gatekeeper"
-    bl_space_type = 'PROPERTIES'
-    bl_region_type = 'WINDOW'
-    bl_context = 'render'
-    
-    def draw(self, context):
-        layout = self.layout
-                
-        row  = layout.row()
-        box  = row.box()
-        ### RENDER SETTINGS: ###
-        row = box.row(align = True)
-        row.operator('scene.save_gatekeeper_store', text = "Save Render Settings", icon = 'SAVE_PREFS').to_save = ""
-        row.operator('scene.check_gatekeeper_store', text = "Check Settings", icon = 'VIEWZOOM')
-        row.operator('scene.restore_gatekeeper_store', text = "Restore Settings", icon = 'RECOVER_AUTO').to_restore = ""
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
 
-        box.label(text = "Current Settings Fails:")
-        is_fails = False
-        for scene in bpy.data.scenes:            
-            try:
-                fails = json.loads(scene.gatekeeper.gk_settings_fails)
-            except ValueError:
-                #print("No stored data detected!")
-                box.label(text = "No stored settings detected.", icon = 'ERROR')
-                fails = {}
-                
-            if len(fails) > 0:
-                is_fails = True
-                row = box.row()
-                row.label(text = scene.name, icon = 'SCENE_DATA')
-                
-                row = box.row()
-                col = row.column()
-                col.label(text = "Property:")
-                for fail in fails.keys():
-                    col.label(text = fail)
-                col = row.column()
-                col.label(text = "Current:")
-                for fail in fails.keys():
-                    col.label(text = str(fails[fail][0]))
-                col = row.column()
-                col.label(text = "Stored:")
-                for fail in fails.keys():
-                    col.label(text = str(fails[fail][1]))
-                col = row.column()
-                col.label(text = "Restore:")
-                for fail in fails.keys():
-                    col.operator('scene.restore_gatekeeper_store', text = "Restore").to_restore = "Scene," + scene.name + "," + scene.name + "," + fail
-                col = row.column()
-                col.label(text = "Overwrite:")
-                for fail in fails.keys():
-                    col.operator('scene.save_gatekeeper_store', text = "Overwrite").to_save = "Scene," + scene.name + "," + scene.name + "," + fail
+class ImportSettings(bpy.types.Operator):
+    bl_idname = 'scene.gatekeeper_import'
+    bl_label = "Import Scene Render Settings"
+    bl_info = 'Imports a list of render settings from a file.'
+    filepath = bpy.props.StringProperty(name = "filepath", subtype = 'FILE_PATH')
 
-            # Render layer settings fails:
-            row = box.row()
-            for layer in scene.render.layers:
-                try:
-                    fails_layer =  json.loads(scene.gatekeeper.gk_renderlayerstores[layer.name].gk_settings_fails)
-                    #print(fails_layer)
-                except (KeyError, ValueError):
-                    box.label("No stored settings detected for render layer: " + layer.name)
-                    fails_layer = {}
-                if len(fails_layer) > 0:
-                    box.label(text = "Render Layer Settings:")
-                    is_fails = True
-                    row = box.row()
-                    row.label(text = layer.name, icon = 'RENDERLAYERS')
+    def execute(self, context):
+        with open(self.filepath, "r") as f:
+            settings = json.load(f)
+            scene = bpy.context.scene
+            #Set scenes store as settings:
+            scene.gatekeeper.store = json.dumps(settings)
+            #Apply settings using restore:
+            bpy.ops.scene.restore_gatekeeper_store(to_restore = "")
+            print("Imported render settings from: " + self.filepath)
+            return {'FINISHED'}
 
-                    row = box.row()
-                    col = row.column()
-                    col.label(text = "Property:")
-                    for fail in fails_layer.keys():
-                        col.label(text = fail)
-                    col = row.column()
-                    col.label(text = "Current:")
-                    for fail in fails_layer.keys():
-                        col.label(text = str(fails_layer[fail][0]))
-                    col = row.column()
-                    col.label(text = "Stored:")
-                    for fail in fails_layer.keys():
-                        col.label(text = str(fails_layer[fail][1]))
-                    col = row.column()
-                    col.label(text = "Restore:")
-                    for fail in fails_layer.keys():
-                        col.operator('scene.restore_gatekeeper_store', text = "Restore").to_restore = "Scene Render Layer," + scene.name + "," + layer.name + "," + fail
-                    col = row.column()
-                    col.label(text = "Overwrite:")
-                    for fail in fails_layer.keys():
-                        col.operator('scene.save_gatekeeper_store', text = "Overwrite").to_save =  "Scene Render Layer," + scene.name + "," + layer.name + "," + fail
-
-
-
-        if not is_fails:
-            box.label(text = "No Settings Errors", icon = 'FILE_TICK')   
-
-        
-        ### ENABLED LAYER FAILS: ###
-        row  = layout.row()
-        box  = row.box()
-
-        row = box.row(align = True)
-        row.operator('scene.gatekeeper_check_renderlayers', text = "Check Layers", icon = 'VIEWZOOM')
-        row.operator('scene.gatekeeper_fix_renderlayers', text = "Rectify Layers",  icon = 'RECOVER_AUTO').to_fix = ""
-        row = box.row()
-        row.prop(bpy.context.scene.gatekeeper, 'gk_renderlayer_ignoredisabled', text = "Ignore Disabled")
-        row.prop(bpy.context.scene.gatekeeper, 'gk_renderlayer_ignoreinclusive', text  = "Ignore Inclusive")
-
-        row = box.row()
-        row.operator('scene.gatekeeper_mark_render_layers', text = "Save Required Layers")
-
-
-
-        box.label(text = "Current Layer Fails:")
-        is_fails = False
-        for scene in bpy.data.scenes:
-            try:
-                fails = json.loads(scene.gatekeeper.gk_renderlayer_fails)
-            except ValueError:
-                #print("No stored data detected for gk_renderlayer_fails.")
-                fails = {}
-            
-            if len(fails) > 0:
-                is_fails = True
-                row = box.row()
-                row.label(text = scene.name, icon = 'SCENE_DATA')
-                
-                col = row.column()
-                col.label(text = "Render Layer", icon = 'RENDERLAYERS')
-                for fail in sorted(fails.keys()):
-                    col.label(text = fail)
-                    
-                col = row.column()
-                col.label(text = "Missing")
-                for fail in fails.keys():
-                    col.label(text = str(fails[fail]))
-                    
-                col = row.column()
-                col.label(text = "Rectify")
-                for fail in fails.keys():
-                    col.operator('scene.gatekeeper_fix_renderlayers', text = "Enable Missing").to_fix = scene.name + "," + str(fails[fail]).strip("[]")
-        if not is_fails:
-            box.label(text = "No Render Layer Errors", icon = 'FILE_TICK')        
-
-        ### FILE OUTPUT NODE FAILS ###
-        box = layout.box()                    
-        row = box.row()
-        row.operator('scene.gatekeeper_check_fileoutputs', text = "Check File Output Nodes", icon = 'VIEWZOOM')
-
-        row = box.row()
-        try:
-            fails = json.loads(scene.gatekeeper.gk_fileoutput_fails)
-        except ValueError:
-            #print("No stored data detected for gk_fileoutput_fails.")
-            fails = {}
-        if len(fails) > 0:
-            box  = row.column()
-            box.label(text = "File Ouput Fails:")
-            row = box.row()
-
-            col = row.column()
-            col.label(text = "Node", icon = 'NODETREE')
-            for fail in fails.keys():
-                col.label(text = fail)
-
-            col = row.column()
-            col.label(text = "Inputs", icon = 'NODETREE')
-            for fail in fails.keys():
-                col.label(text = fails[fail])
-
-            row = box.row()
-            #box = row.box()
-            #box.label(text = "No auto-fix for file output nodes.", icon = 'ERROR')
-            #box.label(text = "Check the node editor and fix manually.")
-        else:
-            box.label(text = "No File Output Errors", icon = 'FILE_TICK')
-
-        #Other Potential Errors:
-        row = layout.row()
-        box = row.box()
-        box.operator('scene.gatekeeper_extra_checks', text = "Run Extra Checks", icon = 'VIEWZOOM')
-        box.label(text = "Other Checks", icon = 'ERROR')
-        try:
-            fails = json.loads(bpy.context.scene.gatekeeper.gk_extra_fails)
-        except ValueError:
-            fails = {}
-
-
-        if len(fails) > 0:
-            col = box.column()
-            for fail in fails.keys():
-                col.label(text = fails[fail], icon = 'DOT')
-
-
-
-
-
-
-# Registration:
-def register():
-    #Properties
-    bpy.utils.register_class(GatekeeperLayerProps)
-    bpy.utils.register_class(GatekeeperProps)
-    bpy.types.Scene.gatekeeper = bpy.props.PointerProperty(type = GatekeeperProps)
-    #bpy.types.SceneRenderLayer.gatekeeper = bpy.props.PointerProperty(type = GatekeeperLayerProps)
-    #Operators
-    bpy.utils.register_class(SaveGatekeeperStore)
-    bpy.utils.register_class(CheckGatekeeperStore)
-    bpy.utils.register_class(RestoreGatekeeperStore)
-    bpy.utils.register_class(MarkRenderLayers)
-    bpy.utils.register_class(CheckRenderLayers)
-    bpy.utils.register_class(RectifyRenderLayers)
-    bpy.utils.register_class(CheckFileOutputs)
-    bpy.utils.register_class(CheckExtras)
-    #UI
-    bpy.utils.register_class(GatekeeperPanel)
-
-
-def unregister():
-    #Properties
-    bpy.utils.unregister_class(GatekeeperProps)
-    bpy.utils.unregister_class(GatekeeperLayerProps)
-    #Operators
-    bpy.utils.unregister_class(SaveGatekeeperStore)
-    bpy.utils.unregister_class(CheckGatekeeperStore)
-    bpy.utils.unregister_class(RestoreGatekeeperStore)
-    bpy.utils.unregister_class(MarkRenderLayers)
-    bpy.utils.unregister_class(CheckRenderLayers)
-    bpy.utils.unregister_class(RectifyRenderLayers)
-    bpy.utils.unregister_class(CheckFileOutputs)
-    bpy.utils.unregister_class(CheckExtras)    
-    #UI
-    bpy.utils.unregister_class(GatekeeperPanel)
-
-
-if __name__ == '__main__':
-    register()
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
